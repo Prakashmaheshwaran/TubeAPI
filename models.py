@@ -13,6 +13,12 @@ class ResponseType(str, Enum):
     FILEPATH = "filepath"
 
 
+class StorageProvider(str, Enum):
+    SUPABASE = "supabase"
+    S3 = "s3"
+    FILEPATH = "filepath"
+
+
 class VideoQuality(str, Enum):
     BEST = "best"
     WORST = "worst"
@@ -79,6 +85,9 @@ class DownloadRequest(BaseModel):
     subtitle_language: Optional[str] = Field(
         default="en", description="Subtitle language code (e.g., 'en', 'es', 'fr')"
     )
+    storage_provider: Optional[StorageProvider] = Field(
+        default=None, description="Storage provider for upload (supabase, s3, or filepath). If None, returns binary response."
+    )
 
     @field_validator("video_url")
     @classmethod
@@ -97,6 +106,7 @@ class DownloadResponse(BaseModel):
     filepath: Optional[str] = None
     filename: Optional[str] = None
     file_size: Optional[int] = None
+    public_url: Optional[str] = None
 
 
 class FormatInfo(BaseModel):

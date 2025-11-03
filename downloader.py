@@ -14,8 +14,10 @@ from models import (
     VideoFormat,
     AudioFormat,
     AudioQuality,
-    FormatInfo
+    FormatInfo,
+    StorageProvider
 )
+from storage import SupabaseUploader, S3Uploader
 
 # Configure logging
 logging.basicConfig(
@@ -47,6 +49,10 @@ class VideoDownloader:
         self.max_file_age_hours = int(os.getenv("MAX_FILE_AGE_HOURS", "24"))  # Default: 24 hours
         self.max_storage_mb = int(os.getenv("MAX_STORAGE_MB", "1024"))  # Default: 1GB
         self.cleanup_task: Optional[asyncio.Task] = None
+
+        # Initialize storage uploaders
+        self.supabase_uploader = SupabaseUploader()
+        self.s3_uploader = S3Uploader()
 
         logger.info(f"Cleanup configured: enabled={self.cleanup_enabled}, interval={self.cleanup_interval}min, "
                    f"max_age={self.max_file_age_hours}h, max_storage={self.max_storage_mb}MB")
@@ -359,6 +365,48 @@ class VideoDownloader:
             logger.error(f"Failed to extract formats: {str(e)}")
             raise
     
+    def upload_to_storage(self, filepath: str, filename: str, storage_provider: StorageProvider) -> str:
+        """
+        Upload a file to cloud storage and delete local file after successful upload.
+        
+        Args:
+            filepath: Local path to the file
+            filename: Name of the file
+            storage_provider: Storage provider to use
+            
+        Returns:
+            Public URL of the uploaded file
+            
+        Raises:
+            Exception: If upload fails
+        """
+        uploader = None
+        
+        if storage_provider == StorageProvider.SUPABASE:
+            uploader = self.supabase_uploader
+        elif storage_provider == StorageProvider.S3:
+            uploader = self.s3_uploader
+        else:
+            raise ValueError(f"Invalid storage provider: {storage_provider}")
+        
+        try:
+            # Upload file to cloud storage
+            public_url = uploader.upload_file(filepath, filename)
+            
+            # Delete local file after successful upload
+            if os.path.exists(filepath):
+                try:
+                    os.remove(filepath)
+                    logger.info(f"Deleted local file after successful upload: {filepath}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete local file {filepath}: {str(e)}")
+            
+            return public_url
+            
+        except Exception as e:
+            logger.error(f"Storage upload failed: {str(e)}")
+            raise
+    
     def cleanup_file(self, filepath: str) -> bool:
         """
         Delete a downloaded file.
@@ -416,6 +464,18 @@ class VideoDownloader:
         try:
             logger.info("Starting scheduled cleanup...")
 
+            # Clean up local files
+            await self._cleanup_local_files()
+            
+            # Clean up cloud storage files
+            await self._cleanup_cloud_storage()
+
+        except Exception as e:
+            logger.error(f"Error during cleanup: {str(e)}")
+    
+    async def _cleanup_local_files(self):
+        """Clean up local files in output directory."""
+        try:
             # Get all files in output directory
             output_path = Path(self.output_dir)
             if not output_path.exists():
@@ -468,11 +528,116 @@ class VideoDownloader:
                         total_size -= file_info['size']
 
             if cleaned_count > 0:
-                logger.info(f"Cleanup completed: removed {cleaned_count} files, "
+                logger.info(f"Local cleanup completed: removed {cleaned_count} files, "
                           f"freed {cleaned_size / (1024*1024):.2f} MB")
-            else:
-                logger.info("Cleanup completed: no files needed removal")
-
         except Exception as e:
-            logger.error(f"Error during cleanup: {str(e)}")
+            logger.error(f"Error during local file cleanup: {str(e)}")
+    
+    async def _cleanup_cloud_storage(self):
+        """Clean up files in cloud storage using same age/size logic."""
+        try:
+            current_time = time.time()
+            max_age_seconds = self.max_file_age_hours * 3600
+            max_size_bytes = self.max_storage_mb * 1024 * 1024
+            
+            # Clean up Supabase storage
+            if self.supabase_uploader.enabled:
+                await self._cleanup_storage_provider(
+                    self.supabase_uploader,
+                    "Supabase",
+                    current_time,
+                    max_age_seconds,
+                    max_size_bytes
+                )
+            
+            # Clean up S3 storage
+            if self.s3_uploader.enabled:
+                await self._cleanup_storage_provider(
+                    self.s3_uploader,
+                    "S3",
+                    current_time,
+                    max_age_seconds,
+                    max_size_bytes
+                )
+        except Exception as e:
+            logger.error(f"Error during cloud storage cleanup: {str(e)}")
+    
+    async def _cleanup_storage_provider(
+        self,
+        uploader,
+        provider_name: str,
+        current_time: float,
+        max_age_seconds: int,
+        max_size_bytes: int
+    ):
+        """Clean up files for a specific storage provider."""
+        try:
+            # List all files
+            files = uploader.list_files()
+            
+            if not files:
+                return
+            
+            # Parse file metadata and calculate total size
+            file_metadata = []
+            total_size = 0
+            
+            for file_info in files:
+                try:
+                    # Parse created_at timestamp
+                    created_at_str = file_info.get('created_at', '')
+                    if created_at_str:
+                        from datetime import datetime
+                        if isinstance(created_at_str, str):
+                            # Try parsing ISO format
+                            try:
+                                created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+                                created_at_timestamp = created_at.timestamp()
+                            except:
+                                # Fallback: use current time if parsing fails
+                                created_at_timestamp = current_time
+                        else:
+                            created_at_timestamp = current_time
+                    else:
+                        created_at_timestamp = current_time
+                    
+                    file_metadata.append({
+                        'path': file_info['path'],
+                        'size': file_info.get('size', 0),
+                        'created_at': created_at_timestamp
+                    })
+                    total_size += file_info.get('size', 0)
+                except Exception as e:
+                    logger.warning(f"Failed to parse file metadata for {file_info.get('path', 'unknown')}: {e}")
+            
+            # Sort by creation time (oldest first)
+            file_metadata.sort(key=lambda x: x['created_at'])
+            
+            cleaned_count = 0
+            cleaned_size = 0
+            
+            # Clean up old files
+            for file_info in file_metadata:
+                file_age = current_time - file_info['created_at']
+                
+                # Remove if older than max age
+                if file_age > max_age_seconds:
+                    if uploader.delete_file(file_info['path']):
+                        cleaned_count += 1
+                        cleaned_size += file_info['size']
+                        total_size -= file_info['size']
+                    continue
+                
+                # If still over size limit, remove oldest files
+                if total_size > max_size_bytes:
+                    if uploader.delete_file(file_info['path']):
+                        cleaned_count += 1
+                        cleaned_size += file_info['size']
+                        total_size -= file_info['size']
+            
+            if cleaned_count > 0:
+                logger.info(f"{provider_name} cleanup completed: removed {cleaned_count} files, "
+                          f"freed {cleaned_size / (1024*1024):.2f} MB")
+        except Exception as e:
+            logger.error(f"Error during {provider_name} cleanup: {str(e)}")
 

@@ -76,6 +76,13 @@ The script will automatically:
 | `CLEANUP_INTERVAL_MINUTES` | No | `60` | Cleanup check interval in minutes |
 | `MAX_FILE_AGE_HOURS` | No | `24` | Maximum file age before cleanup in hours |
 | `MAX_STORAGE_MB` | No | `1024` | Maximum storage size before cleanup in MB |
+| `SUPABASE_URL` | No | - | Supabase project URL (for cloud storage) |
+| `SUPABASE_KEY` | No | - | Supabase service role key (for cloud storage) |
+| `SUPABASE_BUCKET` | No | - | Supabase storage bucket name (for cloud storage) |
+| `AWS_ACCESS_KEY_ID` | No | - | AWS access key ID (for S3 storage) |
+| `AWS_SECRET_ACCESS_KEY` | No | - | AWS secret access key (for S3 storage) |
+| `AWS_S3_BUCKET` | No | - | AWS S3 bucket name (for S3 storage) |
+| `AWS_REGION` | No | `us-east-1` | AWS region for S3 bucket |
 
 ## API Endpoints
 
@@ -96,6 +103,7 @@ Download video or audio.
   "audio_format": "mp3",
   "audio_quality": "192k",
   "response_type": "binary",
+  "storage_provider": null,
   "download_subtitles": false,
   "embed_subtitles": false,
   "subtitle_language": "en"
@@ -110,13 +118,15 @@ Download video or audio.
 - `audio_format` - `"mp3"`, `"m4a"`, `"opus"`, `"vorbis"`, `"flac"`, `"wav"` (default: `"mp3"`)
 - `audio_quality` - `"128k"`, `"192k"`, `"256k"`, `"320k"` (default: `"192k"`)
 - `response_type` - `"binary"` or `"filepath"` (default: `"binary"`)
+- `storage_provider` - `"supabase"`, `"s3"`, or `"filepath"` (optional, uploads to cloud if specified and `response_type` is `"filepath"`)
 - `download_subtitles` - boolean (default: `false`)
 - `embed_subtitles` - boolean (default: `false`)
 - `subtitle_language` - language code (default: `"en"`)
 
 **Response:**
 - Binary mode: File stream with appropriate headers
-- Filepath mode: JSON with file path and metadata
+- Filepath mode (no storage_provider): JSON with local file path and metadata
+- Filepath mode (with storage_provider): JSON with public URL and metadata (local file deleted after upload)
 
 ### GET /formats
 
@@ -203,12 +213,51 @@ curl "http://localhost:8000/formats?url=https://www.youtube.com/watch?v=..." \
   -H "X-API-Key: your-password"
 ```
 
+### Download and Upload to Supabase
+
+```bash
+curl -X POST http://localhost:8000/download \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-password" \
+  -d '{
+    "video_url": "https://www.youtube.com/watch?v=...",
+    "response_type": "filepath",
+    "storage_provider": "supabase"
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Download completed and uploaded to supabase",
+  "filename": "video.mp4",
+  "file_size": 12345678,
+  "public_url": "https://your-project.supabase.co/storage/v1/object/public/bucket/2024-01-15/video.mp4"
+}
+```
+
+### Download and Upload to S3
+
+```bash
+curl -X POST http://localhost:8000/download \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-password" \
+  -d '{
+    "video_url": "https://www.youtube.com/watch?v=...",
+    "response_type": "filepath",
+    "storage_provider": "s3"
+  }'
+```
+
 ### Python Example
 
 ```python
 import requests
 
 headers = {"X-API-Key": "your-password"}
+
+# Download as binary
 response = requests.post(
     "http://localhost:8000/download",
     headers=headers,
@@ -220,6 +269,20 @@ response = requests.post(
 
 with open("video.mp4", "wb") as f:
     f.write(response.content)
+
+# Download and upload to Supabase
+response = requests.post(
+    "http://localhost:8000/download",
+    headers=headers,
+    json={
+        "video_url": "https://www.youtube.com/watch?v=...",
+        "response_type": "filepath",
+        "storage_provider": "supabase"
+    }
+)
+
+result = response.json()
+print(f"Public URL: {result['public_url']}")
 ```
 
 ## Authentication

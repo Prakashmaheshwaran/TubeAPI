@@ -17,7 +17,8 @@ from models import (
     FormatsListResponse,
     HealthResponse,
     ErrorResponse,
-    ResponseType
+    ResponseType,
+    StorageProvider
 )
 from downloader import VideoDownloader
 
@@ -232,11 +233,12 @@ async def download_video(
     - **audio_format**: Audio format like "mp3", "m4a" (default: "mp3")
     - **audio_quality**: Audio bitrate like "128k", "192k", "320k" (default: "192k")
     - **response_type**: "binary" or "filepath" (default: "binary")
+    - **storage_provider**: "supabase", "s3", or "filepath" (optional, uploads to cloud if specified)
     - **download_subtitles**: Whether to download subtitles (default: false)
     - **embed_subtitles**: Whether to embed subtitles (default: false)
     - **subtitle_language**: Subtitle language code (default: "en")
     
-    Returns either a binary stream (default) or file path information.
+    Returns either a binary stream (default), file path information, or public URL if storage_provider is set.
     """
     global downloader
     
@@ -271,21 +273,57 @@ async def download_video(
                 }
             )
         else:
-            # Return file path information
-            # NOTE: In future, this is where you would upload to Supabase
-            # and return the public URL instead of local filepath
+            # Handle storage provider if specified
+            public_url = None
+            filepath = result['filepath']
+            filename = result['filename']
             
-            # Placeholder for Supabase integration:
-            # supabase_url = await upload_to_supabase(result['filepath'])
-            # result['public_url'] = supabase_url
-            
-            return DownloadResponse(
-                success=True,
-                message="Download completed successfully",
-                filepath=result['filepath'],
-                filename=result['filename'],
-                file_size=result['file_size']
-            )
+            if download_request.storage_provider:
+                if download_request.storage_provider == StorageProvider.FILEPATH:
+                    # Return local filepath (existing behavior)
+                    return DownloadResponse(
+                        success=True,
+                        message="Download completed successfully",
+                        filepath=filepath,
+                        filename=filename,
+                        file_size=result['file_size']
+                    )
+                else:
+                    # Upload to cloud storage (Supabase or S3)
+                    try:
+                        public_url = downloader.upload_to_storage(
+                            filepath,
+                            filename,
+                            download_request.storage_provider
+                        )
+                        logger.info(f"File uploaded to {download_request.storage_provider.value}: {public_url}")
+                        
+                        return DownloadResponse(
+                            success=True,
+                            message=f"Download completed and uploaded to {download_request.storage_provider.value}",
+                            filename=filename,
+                            file_size=result['file_size'],
+                            public_url=public_url
+                        )
+                    except Exception as upload_error:
+                        logger.error(f"Upload to {download_request.storage_provider.value} failed: {str(upload_error)}")
+                        # Fallback to returning local filepath if upload fails
+                        return DownloadResponse(
+                            success=True,
+                            message=f"Download completed but upload failed: {str(upload_error)}",
+                            filepath=filepath,
+                            filename=filename,
+                            file_size=result['file_size']
+                        )
+            else:
+                # Return local filepath (no storage provider specified)
+                return DownloadResponse(
+                    success=True,
+                    message="Download completed successfully",
+                    filepath=filepath,
+                    filename=filename,
+                    file_size=result['file_size']
+                )
             
     except ValueError as e:
         # Validation errors
