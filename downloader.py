@@ -102,6 +102,36 @@ class VideoDownloader:
             'outtmpl': output_template,
             'quiet': False,
             'no_warnings': False,
+            # Anti-bot measures
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'referer': request.video_url,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Cache-Control': 'max-age=0',
+            },
+            # Additional options to bypass restrictions
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web', 'ios'],
+                    'player_skip': ['js', 'configs', 'webpage'],
+                    'formats': ['missing_pot'],
+                }
+            },
+            # Retry configuration
+            'retries': 3,
+            'retry_sleep_functions': {
+                'http': lambda n: min(2 ** n, 30),  # Exponential backoff, max 30 seconds
+            },
         }
         
         if request.format_type == FormatType.AUDIO:
@@ -281,39 +311,70 @@ class VideoDownloader:
     
     def download(self, request: DownloadRequest) -> Dict[str, Any]:
         """
-        Download video with automatic fallback.
+        Download video with automatic fallback and retry logic.
         Tries yt-dlp first, falls back to pytube if it fails.
-        
+        Includes retry logic with exponential backoff for bot detection issues.
+
         Args:
             request: Download request parameters
-            
+
         Returns:
             Dictionary with download results
-            
+
         Raises:
-            Exception: If both methods fail
+            Exception: If both methods fail after retries
         """
-        ytdlp_error = None
-        pytube_error = None
-        
-        # Try yt-dlp first
-        try:
-            return self.download_with_ytdlp(request)
-        except Exception as e:
-            ytdlp_error = str(e)
-            logger.warning(f"yt-dlp failed, trying pytube fallback. Error: {ytdlp_error}")
-        
-        # Fallback to pytube
-        try:
-            return self.download_with_pytube(request)
-        except Exception as e:
-            pytube_error = str(e)
-            logger.error(f"pytube also failed. Error: {pytube_error}")
-        
-        # Both failed
-        error_msg = f"Both download methods failed. yt-dlp error: {ytdlp_error}. pytube error: {pytube_error}"
-        logger.error(error_msg)
-        raise Exception(error_msg)
+        import time
+        import random
+
+        max_retries = 3
+        base_delay = 2  # seconds
+        max_delay = 30  # seconds
+
+        for attempt in range(max_retries):
+            ytdlp_error = None
+            pytube_error = None
+
+            try:
+                # Try yt-dlp first
+                return self.download_with_ytdlp(request)
+            except Exception as e:
+                ytdlp_error = str(e)
+                logger.warning(f"yt-dlp failed (attempt {attempt + 1}/{max_retries}): {ytdlp_error}")
+
+                # Check if this is a bot detection error that might be temporary
+                if "Sign in to confirm" in ytdlp_error or "bot" in ytdlp_error.lower():
+                    if attempt < max_retries - 1:
+                        delay = min(base_delay * (2 ** attempt) + random.uniform(0, 1), max_delay)
+                        logger.info(f"Bot detection detected, waiting {delay:.2f} seconds before retry...")
+                        time.sleep(delay)
+                        continue
+
+            try:
+                # Fallback to pytube
+                return self.download_with_pytube(request)
+            except Exception as e:
+                pytube_error = str(e)
+                logger.warning(f"pytube also failed (attempt {attempt + 1}/{max_retries}): {pytube_error}")
+
+                # Check if this is a rate limiting or temporary error
+                if ("400" in pytube_error or "429" in pytube_error or "rate limit" in pytube_error.lower()) and attempt < max_retries - 1:
+                    delay = min(base_delay * (2 ** attempt) + random.uniform(0, 1), max_delay)
+                    logger.info(f"Temporary error detected, waiting {delay:.2f} seconds before retry...")
+                    time.sleep(delay)
+                    continue
+
+            # If we get here, both methods failed on this attempt
+            if attempt < max_retries - 1:
+                # Wait before next attempt
+                delay = min(base_delay * (2 ** attempt) + random.uniform(0, 1), max_delay)
+                logger.info(f"Both methods failed, waiting {delay:.2f} seconds before retry...")
+                time.sleep(delay)
+            else:
+                # Final attempt failed
+                error_msg = f"Both download methods failed after {max_retries} attempts. Final yt-dlp error: {ytdlp_error}. Final pytube error: {pytube_error}"
+                logger.error(error_msg)
+                raise Exception(error_msg)
     
     def get_video_formats(self, video_url: str) -> Dict[str, Any]:
         """
@@ -334,6 +395,36 @@ class VideoDownloader:
             ydl_opts = {
                 'quiet': True,
                 'no_warnings': True,
+                # Anti-bot measures
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'referer': video_url,
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'DNT': '1',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1',
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'none',
+                    'Sec-Fetch-User': '?1',
+                    'Cache-Control': 'max-age=0',
+                },
+                # Additional options to bypass restrictions
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android', 'web', 'ios'],
+                        'player_skip': ['js', 'configs', 'webpage'],
+                        'formats': ['missing_pot'],
+                    }
+                },
+                # Retry configuration
+                'retries': 3,
+                'retry_sleep_functions': {
+                    'http': lambda n: min(2 ** n, 30),  # Exponential backoff, max 30 seconds
+                },
             }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
