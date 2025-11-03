@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  youtube-download-api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - OUTPUT_DIR=/tmp/yt_downloads
+      - API_PASSWORD=${API_PASSWORD:-change-me}
+      - RATE_LIMIT=${RATE_LIMIT:-10/minute}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
