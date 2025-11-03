@@ -18,6 +18,23 @@
 - 📤 **Flexible Response**: Binary stream or filepath output
 - 🏥 **Health Monitoring**: Built-in health check endpoint
 - 📋 **Format Discovery**: List available video qualities
+- 🧹 **Automatic Cleanup**: Configurable background cleanup of old files
+
+## 🧹 Automatic File Cleanup
+
+TubeAPI includes automatic cleanup of downloaded files to prevent storage accumulation:
+
+- **Age-based cleanup**: Files older than configurable hours are removed
+- **Size-based cleanup**: When storage exceeds limit, oldest files are removed first
+- **Configurable intervals**: Cleanup runs periodically (default: every hour)
+- **Smart prioritization**: Old files removed first, then by size if still over limit
+
+**Default Settings:**
+- Cleanup interval: 60 minutes
+- Max file age: 24 hours
+- Max storage: 1024 MB (1GB)
+
+Configure via environment variables or `.env` file.
 
 ## 🚀 Quickstart
 
@@ -103,6 +120,10 @@ API docs at `http://localhost:8000/docs`
 - `RATE_LIMIT` (optional) - Rate limit per endpoint (default: "10/minute")
 - `PORT` (optional) - Server port (default: 8000)
 - `OUTPUT_DIR` (optional) - Download directory (default: system temp)
+- `CLEANUP_ENABLED` (optional) - Enable automatic cleanup (default: "true")
+- `CLEANUP_INTERVAL_MINUTES` (optional) - Cleanup check interval in minutes (default: 60)
+- `MAX_FILE_AGE_HOURS` (optional) - Maximum file age before cleanup in hours (default: 24)
+- `MAX_STORAGE_MB` (optional) - Maximum storage size before cleanup in MB (default: 1024)
 
 ## API Endpoints
 

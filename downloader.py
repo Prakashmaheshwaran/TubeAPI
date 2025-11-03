@@ -1,6 +1,9 @@
 import os
 import tempfile
 import logging
+import asyncio
+import time
+from pathlib import Path
 from typing import Optional, Dict, Any, List
 import yt_dlp
 from pytube import YouTube
@@ -30,13 +33,23 @@ class VideoDownloader:
     def __init__(self, output_dir: Optional[str] = None):
         """
         Initialize the downloader.
-        
+
         Args:
             output_dir: Directory to save downloads. Defaults to temp directory.
         """
         self.output_dir = output_dir or tempfile.gettempdir()
         os.makedirs(self.output_dir, exist_ok=True)
         logger.info(f"VideoDownloader initialized with output_dir: {self.output_dir}")
+
+        # Cleanup configuration
+        self.cleanup_enabled = os.getenv("CLEANUP_ENABLED", "true").lower() == "true"
+        self.cleanup_interval = int(os.getenv("CLEANUP_INTERVAL_MINUTES", "60"))  # Default: 1 hour
+        self.max_file_age_hours = int(os.getenv("MAX_FILE_AGE_HOURS", "24"))  # Default: 24 hours
+        self.max_storage_mb = int(os.getenv("MAX_STORAGE_MB", "1024"))  # Default: 1GB
+        self.cleanup_task: Optional[asyncio.Task] = None
+
+        logger.info(f"Cleanup configured: enabled={self.cleanup_enabled}, interval={self.cleanup_interval}min, "
+                   f"max_age={self.max_file_age_hours}h, max_storage={self.max_storage_mb}MB")
     
     def _get_quality_format(self, quality: VideoQuality, video_format: VideoFormat) -> str:
         """
@@ -349,10 +362,10 @@ class VideoDownloader:
     def cleanup_file(self, filepath: str) -> bool:
         """
         Delete a downloaded file.
-        
+
         Args:
             filepath: Path to file to delete
-            
+
         Returns:
             True if successful, False otherwise
         """
@@ -365,4 +378,101 @@ class VideoDownloader:
         except Exception as e:
             logger.error(f"Failed to cleanup file {filepath}: {str(e)}")
             return False
+
+    def start_cleanup_task(self):
+        """Start the background cleanup task."""
+        if not self.cleanup_enabled:
+            logger.info("Cleanup task disabled by configuration")
+            return
+
+        if self.cleanup_task and not self.cleanup_task.done():
+            logger.warning("Cleanup task already running")
+            return
+
+        self.cleanup_task = asyncio.create_task(self._cleanup_worker())
+        logger.info(f"Started cleanup task (interval: {self.cleanup_interval} minutes)")
+
+    def stop_cleanup_task(self):
+        """Stop the background cleanup task."""
+        if self.cleanup_task and not self.cleanup_task.done():
+            self.cleanup_task.cancel()
+            logger.info("Stopped cleanup task")
+
+    async def _cleanup_worker(self):
+        """Background worker for periodic cleanup."""
+        while True:
+            try:
+                await asyncio.sleep(self.cleanup_interval * 60)  # Convert minutes to seconds
+                await self._perform_cleanup()
+            except asyncio.CancelledError:
+                logger.info("Cleanup task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in cleanup worker: {str(e)}")
+                await asyncio.sleep(60)  # Wait 1 minute before retrying
+
+    async def _perform_cleanup(self):
+        """Perform the actual cleanup operation."""
+        try:
+            logger.info("Starting scheduled cleanup...")
+
+            # Get all files in output directory
+            output_path = Path(self.output_dir)
+            if not output_path.exists():
+                return
+
+            files = []
+            total_size = 0
+
+            # Collect file information
+            for file_path in output_path.iterdir():
+                if file_path.is_file():
+                    try:
+                        stat = file_path.stat()
+                        files.append({
+                            'path': file_path,
+                            'size': stat.st_size,
+                            'mtime': stat.st_mtime
+                        })
+                        total_size += stat.st_size
+                    except OSError as e:
+                        logger.warning(f"Could not stat file {file_path}: {e}")
+
+            # Sort files by modification time (oldest first)
+            files.sort(key=lambda x: x['mtime'])
+
+            current_time = time.time()
+            max_age_seconds = self.max_file_age_hours * 3600
+            max_size_bytes = self.max_storage_mb * 1024 * 1024
+
+            cleaned_count = 0
+            cleaned_size = 0
+
+            # Clean up old files
+            for file_info in files:
+                file_age = current_time - file_info['mtime']
+
+                # Remove if older than max age
+                if file_age > max_age_seconds:
+                    if self.cleanup_file(str(file_info['path'])):
+                        cleaned_count += 1
+                        cleaned_size += file_info['size']
+                        total_size -= file_info['size']
+                    continue
+
+                # If still over size limit, remove oldest files
+                if total_size > max_size_bytes:
+                    if self.cleanup_file(str(file_info['path'])):
+                        cleaned_count += 1
+                        cleaned_size += file_info['size']
+                        total_size -= file_info['size']
+
+            if cleaned_count > 0:
+                logger.info(f"Cleanup completed: removed {cleaned_count} files, "
+                          f"freed {cleaned_size / (1024*1024):.2f} MB")
+            else:
+                logger.info("Cleanup completed: no files needed removal")
+
+        except Exception as e:
+            logger.error(f"Error during cleanup: {str(e)}")
 

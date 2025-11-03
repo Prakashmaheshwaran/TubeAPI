@@ -69,16 +69,22 @@ async def verify_password(x_api_key: str = Header(..., alias="X-API-Key")):
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
     global downloader
-    
+
     # Startup
     output_dir = os.getenv("OUTPUT_DIR", os.path.join(tempfile.gettempdir(), "yt_downloads"))
     downloader = VideoDownloader(output_dir=output_dir)
+
+    # Start cleanup task
+    downloader.start_cleanup_task()
+
     logger.info(f"Application started. Output directory: {output_dir}")
-    
+
     yield
-    
+
     # Shutdown
-    logger.info("Application shutting down")
+    if downloader:
+        downloader.stop_cleanup_task()
+        logger.info("Application shutdown complete")
 
 
 # Initialize FastAPI app

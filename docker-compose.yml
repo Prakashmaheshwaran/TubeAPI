@@ -11,6 +11,10 @@ services:
       - OUTPUT_DIR=/tmp/yt_downloads
       - API_PASSWORD=${API_PASSWORD:-change-me}
       - RATE_LIMIT=${RATE_LIMIT:-10/minute}
+      - CLEANUP_ENABLED=${CLEANUP_ENABLED:-true}
+      - CLEANUP_INTERVAL_MINUTES=${CLEANUP_INTERVAL_MINUTES:-60}
+      - MAX_FILE_AGE_HOURS=${MAX_FILE_AGE_HOURS:-24}
+      - MAX_STORAGE_MB=${MAX_STORAGE_MB:-1024}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
