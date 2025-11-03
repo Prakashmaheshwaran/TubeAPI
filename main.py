@@ -425,14 +425,16 @@ if __name__ == "__main__":
     
     port = int(os.getenv("PORT", "8000"))
     host = os.getenv("HOST", "0.0.0.0")
+    # Disable reload in production/Docker environments
+    reload = os.getenv("RELOAD", "false").lower() == "true"
     
-    logger.info(f"Starting server on {host}:{port}")
+    logger.info(f"Starting server on {host}:{port} (reload={reload})")
     
     uvicorn.run(
         "main:app",
         host=host,
         port=port,
-        reload=True,
+        reload=reload,
         log_level="info"
     )
 
