@@ -1,6 +1,6 @@
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
-yt-dlp>=2023.11.0
+yt-dlp @ https://github.com/yt-dlp/yt-dlp/archive/refs/heads/master.zip
 pytube>=15.0.0
 python-multipart>=0.0.6
 pydantic>=2.0.0

@@ -59,14 +59,32 @@ class VideoDownloader:
         logger.info(f"Cleanup configured: enabled={self.cleanup_enabled}, interval={self.cleanup_interval}min, "
                    f"max_age={self.max_file_age_hours}h, max_storage={self.max_storage_mb}MB")
     
+    def _get_height_from_quality(self, quality: VideoQuality) -> str:
+        """
+        Extract height from quality enum.
+
+        Args:
+            quality: Video quality enum
+
+        Returns:
+            Height as string (e.g., "720" for "720p")
+        """
+        if quality == VideoQuality.BEST:
+            return "1080"  # Default max height for best quality
+        elif quality == VideoQuality.WORST:
+            return "360"   # Default min height for worst quality
+        else:
+            # Extract height from quality (e.g., "720p" -> "720")
+            return quality.value.replace("p", "")
+
     def _get_quality_format(self, quality: VideoQuality, video_format: VideoFormat) -> str:
         """
         Convert quality enum to yt-dlp format string.
-        
+
         Args:
             quality: Video quality enum
             video_format: Video format enum
-            
+
         Returns:
             yt-dlp format string
         """
@@ -105,6 +123,10 @@ class VideoDownloader:
             # Anti-bot measures
             'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'referer': request.video_url,
+            # Network and connection options
+            'force_ipv4': True,  # Force IPv4 to avoid connection issues
+            'socket_timeout': 30,  # Increase timeout
+            'geo_bypass': True,  # Bypass geo-restrictions
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
@@ -143,15 +165,25 @@ class VideoDownloader:
                 'preferredquality': request.audio_quality.value.replace('k', ''),
             }]
         else:
-            # Video download
-            format_string = self._get_quality_format(request.quality, request.video_format)
-            ydl_opts['format'] = format_string
-            
-            # Post-processor to merge video and audio
-            ydl_opts['postprocessors'] = [{
-                'key': 'FFmpegVideoConvertor',
-                'preferedformat': request.video_format.value,
-            }]
+            # Video download - try combined formats first, fallback to separate streams
+            try:
+                # First try: combined format (bestvideo+bestaudio)
+                ydl_opts['format'] = f"bestvideo[height<={self._get_height_from_quality(request.quality)}][ext={request.video_format.value}]+bestaudio/best[height<={self._get_height_from_quality(request.quality)}]/best"
+                # Post-processor to convert if needed
+                ydl_opts['postprocessors'] = [{
+                    'key': 'FFmpegVideoConvertor',
+                    'preferedformat': request.video_format.value,
+                }]
+            except:
+                # Fallback: use the original format selection
+                format_string = self._get_quality_format(request.quality, request.video_format)
+                ydl_opts['format'] = format_string
+
+                # Post-processor to merge video and audio
+                ydl_opts['postprocessors'] = [{
+                    'key': 'FFmpegVideoConvertor',
+                    'preferedformat': request.video_format.value,
+                }]
             
             # Handle subtitles
             if request.download_subtitles:
@@ -398,6 +430,10 @@ class VideoDownloader:
                 # Anti-bot measures
                 'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'referer': video_url,
+                # Network and connection options
+                'force_ipv4': True,  # Force IPv4 to avoid connection issues
+                'socket_timeout': 30,  # Increase timeout
+                'geo_bypass': True,  # Bypass geo-restrictions
                 'http_headers': {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
