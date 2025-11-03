@@ -5,11 +5,12 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from pathlib import Path
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Configure logging (only if not already configured)
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
 logger = logging.getLogger(__name__)
 
 
@@ -86,8 +87,8 @@ class SupabaseUploader(StorageUploader):
         else:
             self.enabled = True
             try:
-                from supabase import create_client, Client
-                self.client: Client = create_client(self.url, self.key)
+                from supabase import create_client
+                self.client = create_client(self.url, self.key)
                 logger.info(f"Supabase uploader initialized with bucket: {self.bucket}")
             except ImportError:
                 logger.error("supabase package not installed. Install with: pip install supabase")
@@ -121,12 +122,34 @@ class SupabaseUploader(StorageUploader):
             with open(filepath, 'rb') as f:
                 file_data = f.read()
             
-            # Upload to Supabase
-            response = self.client.storage.from_(self.bucket).upload(
-                path=storage_path,
-                file=file_data,
-                file_options={"content-type": self._get_content_type(filename)}
-            )
+            # Try to upload to Supabase
+            # If file exists, delete it first then upload (for overwrite behavior)
+            try:
+                # First, try to delete existing file if it exists (silent fail if not exists)
+                try:
+                    self.client.storage.from_(self.bucket).remove([storage_path])
+                except:
+                    pass  # File doesn't exist, which is fine
+                
+                # Upload the file
+                response = self.client.storage.from_(self.bucket).upload(
+                    path=storage_path,
+                    file=file_data,
+                    file_options={"content-type": self._get_content_type(filename)}
+                )
+            except Exception as upload_error:
+                # If upload fails due to existing file, try to remove and retry
+                error_str = str(upload_error).lower()
+                if 'already exists' in error_str or 'duplicate' in error_str:
+                    logger.info(f"File exists, removing and retrying upload: {storage_path}")
+                    self.client.storage.from_(self.bucket).remove([storage_path])
+                    response = self.client.storage.from_(self.bucket).upload(
+                        path=storage_path,
+                        file=file_data,
+                        file_options={"content-type": self._get_content_type(filename)}
+                    )
+                else:
+                    raise
             
             # Get public URL
             public_url = self.client.storage.from_(self.bucket).get_public_url(storage_path)
@@ -293,7 +316,17 @@ class S3Uploader(StorageUploader):
             )
             
             # Generate public URL
-            public_url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{storage_path}"
+            # For public buckets, use standard URL format
+            # For private buckets, users should configure bucket policy or use presigned URLs
+            from urllib.parse import quote
+            encoded_path = quote(storage_path, safe='/')
+            # Standard S3 URL format: https://bucket-name.s3.region.amazonaws.com/key
+            # Handle bucket names with dots (use s3-website format if needed)
+            if '.' in self.bucket:
+                # Buckets with dots must use path-style or virtual-hosted-style
+                public_url = f"https://s3.{self.region}.amazonaws.com/{self.bucket}/{encoded_path}"
+            else:
+                public_url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{encoded_path}"
             
             logger.info(f"Successfully uploaded to S3: {storage_path} -> {public_url}")
             return public_url

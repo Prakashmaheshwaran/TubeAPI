@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py .
 COPY models.py .
 COPY downloader.py .
+COPY storage.py .
 
 # Create directory for downloads
 RUN mkdir -p /tmp/yt_downloads

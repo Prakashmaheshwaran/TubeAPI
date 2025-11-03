@@ -5,6 +5,7 @@ import asyncio
 import time
 from pathlib import Path
 from typing import Optional, Dict, Any, List
+from datetime import datetime
 import yt_dlp
 from pytube import YouTube
 from models import (
@@ -19,11 +20,12 @@ from models import (
 )
 from storage import SupabaseUploader, S3Uploader
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Configure logging (only if not already configured)
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
 logger = logging.getLogger(__name__)
 
 
@@ -587,7 +589,6 @@ class VideoDownloader:
                     # Parse created_at timestamp
                     created_at_str = file_info.get('created_at', '')
                     if created_at_str:
-                        from datetime import datetime
                         if isinstance(created_at_str, str):
                             # Try parsing ISO format
                             try:
