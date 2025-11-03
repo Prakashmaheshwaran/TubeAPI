@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
 # Initialize FastAPI app
 app = FastAPI(
     title="YouTube Download API",
-    description="REST API for downloading YouTube videos with yt-dlp and pytube fallback",
+    description="REST API for downloading YouTube videos with yt-dlp",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -185,35 +185,25 @@ async def health_check():
     Health check endpoint to verify service status and dependencies.
     """
     ytdlp_available = False
-    pytube_available = False
-    
+
     # Check yt-dlp
     try:
         import yt_dlp
         ytdlp_available = True
     except ImportError:
         logger.warning("yt-dlp not available")
-    
-    # Check pytube
-    try:
-        import pytube
-        pytube_available = True
-    except ImportError:
-        logger.warning("pytube not available")
-    
-    if not ytdlp_available and not pytube_available:
+
+    if not ytdlp_available:
         return HealthResponse(
             status="unhealthy",
-            message="No download backends available",
-            ytdlp_available=False,
-            pytube_available=False
+            message="No download backend available",
+            ytdlp_available=False
         )
-    
+
     return HealthResponse(
         status="healthy",
         message="Service is running",
-        ytdlp_available=ytdlp_available,
-        pytube_available=pytube_available
+        ytdlp_available=ytdlp_available
     )
 
 

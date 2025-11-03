@@ -1,6 +1,6 @@
 # TubeAPI
 
-> A simple and reliable REST API for downloading YouTube videos and audio. Built with FastAPI and powered by yt-dlp with pytube fallback.
+> A simple and reliable REST API for downloading YouTube videos and audio. Built with FastAPI and powered by yt-dlp.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -11,7 +11,7 @@
 
 - 🎥 **Video Downloads**: Quality selection from 144p to 2160p/4K
 - 🎵 **Audio Downloads**: MP3, M4A, OPUS, FLAC, WAV formats
-- 🔄 **Smart Fallback**: yt-dlp primary with pytube backup
+- ⚡ **High Performance**: yt-dlp with JavaScript runtime support
 - 📹 **Multiple Formats**: MP4, WebM, MKV, FLV, AVI support
 - 🔐 **Secure Authentication**: Password-protected API access
 - 🛡️ **Rate Limiting**: Configurable request limits
@@ -161,7 +161,6 @@ Health check (no authentication required).
   "status": "healthy",
   "message": "Service is running",
   "ytdlp_available": true,
-  "pytube_available": true
 }
 ```
 

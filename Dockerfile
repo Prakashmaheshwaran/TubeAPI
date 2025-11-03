@@ -3,12 +3,17 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies including FFmpeg and curl (for healthcheck)
+# Install system dependencies including FFmpeg, curl, and unzip (for Deno installation)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Deno for yt-dlp JavaScript runtime support
+RUN curl -fsSL https://deno.land/install.sh | sh && \
+    mv /root/.deno/bin/deno /usr/local/bin/deno
 
 # Copy requirements first for better caching
 COPY requirements.txt .

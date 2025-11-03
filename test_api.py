@@ -20,7 +20,6 @@ def test_health():
             print(f"✓ Health check passed")
             print(f"  Status: {data['status']}")
             print(f"  yt-dlp available: {data['ytdlp_available']}")
-            print(f"  pytube available: {data['pytube_available']}")
             return True
         else:
             print(f"✗ Health check failed with status {response.status_code}")

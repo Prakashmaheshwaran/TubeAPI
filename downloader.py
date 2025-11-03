@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 import yt_dlp
-from pytube import YouTube
 from models import (
     DownloadRequest,
     FormatType,
@@ -31,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 class VideoDownloader:
     """
-    YouTube video downloader with yt-dlp primary and pytube fallback.
+    YouTube video downloader using yt-dlp.
     """
     
     def __init__(self, output_dir: Optional[str] = None):
@@ -243,109 +242,11 @@ class VideoDownloader:
             logger.error(f"yt-dlp download failed: {str(e)}")
             raise
     
-    def download_with_pytube(self, request: DownloadRequest) -> Dict[str, Any]:
-        """
-        Download video using pytube as fallback.
-        
-        Args:
-            request: Download request parameters
-            
-        Returns:
-            Dictionary with download results
-            
-        Raises:
-            Exception: If download fails
-        """
-        logger.info(f"Attempting download with pytube for URL: {request.video_url}")
-        
-        try:
-            yt = YouTube(request.video_url)
-            
-            if request.format_type == FormatType.AUDIO:
-                # Download audio only
-                stream = yt.streams.filter(only_audio=True).first()
-                if not stream:
-                    raise Exception("No audio stream available")
-                
-                filename = stream.download(output_path=self.output_dir)
-                
-                # Rename to requested audio format
-                base_name = os.path.splitext(filename)[0]
-                new_filename = f"{base_name}.{request.audio_format.value}"
-                
-                # Note: pytube doesn't convert formats, so we keep the original
-                # In production, you'd want to use ffmpeg to convert
-                if filename != new_filename:
-                    os.rename(filename, new_filename)
-                    filename = new_filename
-                    
-            else:
-                # Download video
-                if request.quality == VideoQuality.BEST:
-                    stream = yt.streams.filter(
-                        progressive=True,
-                        file_extension=request.video_format.value
-                    ).order_by('resolution').desc().first()
-                    
-                    if not stream:
-                        # Fallback to any progressive stream
-                        stream = yt.streams.filter(progressive=True).order_by('resolution').desc().first()
-                        
-                elif request.quality == VideoQuality.WORST:
-                    stream = yt.streams.filter(
-                        progressive=True,
-                        file_extension=request.video_format.value
-                    ).order_by('resolution').asc().first()
-                    
-                    if not stream:
-                        stream = yt.streams.filter(progressive=True).order_by('resolution').asc().first()
-                else:
-                    # Specific resolution
-                    resolution = request.quality.value  # e.g., "720p"
-                    stream = yt.streams.filter(
-                        progressive=True,
-                        resolution=resolution,
-                        file_extension=request.video_format.value
-                    ).first()
-                    
-                    if not stream:
-                        # Try without format filter
-                        stream = yt.streams.filter(
-                            progressive=True,
-                            resolution=resolution
-                        ).first()
-                    
-                    if not stream:
-                        # Fallback to closest resolution
-                        stream = yt.streams.filter(progressive=True).order_by('resolution').desc().first()
-                
-                if not stream:
-                    raise Exception("No suitable video stream found")
-                
-                filename = stream.download(output_path=self.output_dir)
-            
-            file_size = os.path.getsize(filename)
-            
-            logger.info(f"Successfully downloaded with pytube: {filename} ({file_size} bytes)")
-            
-            return {
-                'success': True,
-                'filepath': filename,
-                'filename': os.path.basename(filename),
-                'file_size': file_size,
-                'title': yt.title,
-                'method': 'pytube'
-            }
-            
-        except Exception as e:
-            logger.error(f"pytube download failed: {str(e)}")
-            raise
     
     def download(self, request: DownloadRequest) -> Dict[str, Any]:
         """
-        Download video with automatic fallback and retry logic.
-        Tries yt-dlp first, falls back to pytube if it fails.
-        Includes retry logic with exponential backoff for bot detection issues.
+        Download video using yt-dlp with retry logic.
+        Includes retry logic with exponential backoff for temporary errors.
 
         Args:
             request: Download request parameters
@@ -354,7 +255,7 @@ class VideoDownloader:
             Dictionary with download results
 
         Raises:
-            Exception: If both methods fail after retries
+            Exception: If download fails after retries
         """
         import time
         import random
@@ -364,49 +265,26 @@ class VideoDownloader:
         max_delay = 30  # seconds
 
         for attempt in range(max_retries):
-            ytdlp_error = None
-            pytube_error = None
-
             try:
-                # Try yt-dlp first
+                # Try yt-dlp download
                 return self.download_with_ytdlp(request)
             except Exception as e:
-                ytdlp_error = str(e)
-                logger.warning(f"yt-dlp failed (attempt {attempt + 1}/{max_retries}): {ytdlp_error}")
+                error = str(e)
+                logger.warning(f"yt-dlp failed (attempt {attempt + 1}/{max_retries}): {error}")
 
-                # Check if this is a bot detection error that might be temporary
-                if "Sign in to confirm" in ytdlp_error or "bot" in ytdlp_error.lower():
-                    if attempt < max_retries - 1:
-                        delay = min(base_delay * (2 ** attempt) + random.uniform(0, 1), max_delay)
-                        logger.info(f"Bot detection detected, waiting {delay:.2f} seconds before retry...")
-                        time.sleep(delay)
-                        continue
-
-            try:
-                # Fallback to pytube
-                return self.download_with_pytube(request)
-            except Exception as e:
-                pytube_error = str(e)
-                logger.warning(f"pytube also failed (attempt {attempt + 1}/{max_retries}): {pytube_error}")
-
-                # Check if this is a rate limiting or temporary error
-                if ("400" in pytube_error or "429" in pytube_error or "rate limit" in pytube_error.lower()) and attempt < max_retries - 1:
+                # Check if this is a temporary error that might be resolved with retry
+                if ("403" in error or "429" in error or "rate limit" in error.lower() or
+                    "Sign in to confirm" in error or "bot" in error.lower()) and attempt < max_retries - 1:
                     delay = min(base_delay * (2 ** attempt) + random.uniform(0, 1), max_delay)
                     logger.info(f"Temporary error detected, waiting {delay:.2f} seconds before retry...")
                     time.sleep(delay)
                     continue
 
-            # If we get here, both methods failed on this attempt
-            if attempt < max_retries - 1:
-                # Wait before next attempt
-                delay = min(base_delay * (2 ** attempt) + random.uniform(0, 1), max_delay)
-                logger.info(f"Both methods failed, waiting {delay:.2f} seconds before retry...")
-                time.sleep(delay)
-            else:
-                # Final attempt failed
-                error_msg = f"Both download methods failed after {max_retries} attempts. Final yt-dlp error: {ytdlp_error}. Final pytube error: {pytube_error}"
-                logger.error(error_msg)
-                raise Exception(error_msg)
+                # If this is the final attempt, raise the error
+                if attempt == max_retries - 1:
+                    error_msg = f"Download failed after {max_retries} attempts. Final error: {error}"
+                    logger.error(error_msg)
+                    raise Exception(error_msg)
     
     def get_video_formats(self, video_url: str) -> Dict[str, Any]:
         """

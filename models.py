@@ -134,7 +134,6 @@ class HealthResponse(BaseModel):
     status: str
     message: str
     ytdlp_available: bool
-    pytube_available: bool
 
 
 class ErrorResponse(BaseModel):
