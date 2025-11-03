@@ -20,25 +20,9 @@
 - 📋 **Format Discovery**: List available video qualities
 - 🧹 **Automatic Cleanup**: Configurable background cleanup of old files
 
-## 🧹 Automatic File Cleanup
-
-TubeAPI includes automatic cleanup of downloaded files to prevent storage accumulation:
-
-- **Age-based cleanup**: Files older than configurable hours are removed
-- **Size-based cleanup**: When storage exceeds limit, oldest files are removed first
-- **Configurable intervals**: Cleanup runs periodically (default: every hour)
-- **Smart prioritization**: Old files removed first, then by size if still over limit
-
-**Default Settings:**
-- Cleanup interval: 60 minutes
-- Max file age: 24 hours
-- Max storage: 1024 MB (1GB)
-
-Configure via environment variables or `.env` file.
-
 ## 🚀 Quickstart
 
-### Docker (Recommended)
+### Docker Deployment (Recommended)
 
 ```bash
 # Clone the repository
@@ -56,74 +40,42 @@ docker-compose up -d
 curl http://localhost:8000/health
 ```
 
-### Manual Installation
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Copy and configure environment variables
-cp .env.example .env
-# Edit .env file with your API password
-
-# Load environment variables and start server
-source .env
-python main.py
-```
-
 **API is now running at: http://localhost:8000**  
 **📖 Interactive docs: http://localhost:8000/docs**
 
-### Download a Video
+### Minimal Installation (Alternative)
+
+For local development without Docker, use the provided start script:
 
 ```bash
-curl -X POST http://localhost:8000/download \
-  -H "X-API-Key: your-secret-password" \
-  -d '{"video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}' \
-  --output video.mp4
+# Make start script executable
+chmod +x start.sh
+
+# Run the start script
+./start.sh
 ```
 
-## Installation
+The script will automatically:
+- Create a virtual environment if needed
+- Install all dependencies
+- Check for FFmpeg installation
+- Start the server
 
-### Prerequisites
-
-- Python 3.8+
-- FFmpeg
-
-**Install FFmpeg:**
-- macOS: `brew install ffmpeg`
-- Ubuntu/Debian: `sudo apt install ffmpeg`
-- Windows: Download from [ffmpeg.org](https://ffmpeg.org/download.html)
-
-### Setup
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Set environment variables
-export API_PASSWORD="your-secret-password"
-export RATE_LIMIT="10/minute"  # Optional, default: 10/minute
-export PORT=8000  # Optional, default: 8000
-export OUTPUT_DIR="/tmp/downloads"  # Optional
-
-# Start server
-python main.py
-```
-
-Server runs at `http://localhost:8000`  
-API docs at `http://localhost:8000/docs`
+**Note**: Ensure Python 3.8+ and FFmpeg are installed on your system.
 
 ## Environment Variables
 
-- `API_PASSWORD` (required) - Password for API authentication
-- `RATE_LIMIT` (optional) - Rate limit per endpoint (default: "10/minute")
-- `PORT` (optional) - Server port (default: 8000)
-- `OUTPUT_DIR` (optional) - Download directory (default: system temp)
-- `CLEANUP_ENABLED` (optional) - Enable automatic cleanup (default: "true")
-- `CLEANUP_INTERVAL_MINUTES` (optional) - Cleanup check interval in minutes (default: 60)
-- `MAX_FILE_AGE_HOURS` (optional) - Maximum file age before cleanup in hours (default: 24)
-- `MAX_STORAGE_MB` (optional) - Maximum storage size before cleanup in MB (default: 1024)
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `API_PASSWORD` | Yes | - | Password for API authentication |
+| `PORT` | No | `8000` | Server port number |
+| `HOST` | No | `0.0.0.0` | Server host address |
+| `OUTPUT_DIR` | No | System temp | Directory for downloaded files |
+| `RATE_LIMIT` | No | `10/minute` | Rate limit per endpoint (e.g., `20/minute`, `100/hour`) |
+| `CLEANUP_ENABLED` | No | `true` | Enable automatic file cleanup |
+| `CLEANUP_INTERVAL_MINUTES` | No | `60` | Cleanup check interval in minutes |
+| `MAX_FILE_AGE_HOURS` | No | `24` | Maximum file age before cleanup in hours |
+| `MAX_STORAGE_MB` | No | `1024` | Maximum storage size before cleanup in MB |
 
 ## API Endpoints
 
@@ -305,57 +257,6 @@ Run test suite:
 ```bash
 python test_api.py
 ```
-
-## Production Deployment
-
-### Using Gunicorn
-
-```bash
-pip install gunicorn
-gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
-```
-
-### Using Docker
-
-```bash
-docker build -t youtube-api .
-docker run -d -p 8000:8000 -e API_PASSWORD=your-password youtube-api
-```
-
-### Docker Compose
-
-```bash
-docker-compose up -d
-```
-
-## Troubleshooting
-
-**FFmpeg not found:**
-- Install FFmpeg and ensure it's in PATH
-- Verify: `ffmpeg -version`
-
-**Download fails:**
-- Check video URL is valid and accessible
-- Update yt-dlp: `pip install --upgrade yt-dlp`
-- Check server logs for details
-
-**Authentication errors:**
-- Ensure `API_PASSWORD` is set
-- Verify `X-API-Key` header matches password
-
-**Rate limit exceeded:**
-- Wait for rate limit window to reset
-- Adjust `RATE_LIMIT` environment variable
-
----
-
-## 📞 Contact
-
-**Prakash Maheshwaran**
-
-New York, US | pmaheshwaran@binghamton.edu | https://linkedin.com/in/prakash-maheshwaran |
-
-https://github.com/Prakashmaheshwaran
 
 ---
 
